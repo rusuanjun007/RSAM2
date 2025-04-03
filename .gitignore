@@ -1,0 +1,5 @@
+videos/
+*.bkp
+*.mp4
+*.pt
+.vscode/
