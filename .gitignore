@@ -3,3 +3,7 @@ videos/
 *.mp4
 *.pt
 .vscode/
+gemini2.py
+utils.py
+__pycache__/
+other_implementations/

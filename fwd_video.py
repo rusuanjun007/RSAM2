@@ -1,4 +1,5 @@
 import os
+import time
 
 import numpy as np
 import torch
@@ -68,8 +69,8 @@ def show_points(coords, labels, ax, marker_size=200):
     )
 
 
-def copy_images(image_path, video_dir):
-    """Copy one image 300 times with name 0.jpg, 1.jpg, ... to the video directory
+def copy_images(image_path, video_dir, num_copies=300):
+    """Copy one image N times with name 0.jpg, 1.jpg, ... to the video directory
 
     Args:
         image_path (str): The path to the image to copy
@@ -81,15 +82,21 @@ def copy_images(image_path, video_dir):
 
     # Copy and save it 100 times with different names
     img = Image.open(image_path)
-    for i in range(300):
+    for i in range(num_copies):
         img.save(os.path.join(video_dir, f"{i}.jpg"))
 
 
-if __name__ == "__main__":
+def test_sam2_video_fps(checkpoint, model_cfg, verbose=False):
+    """Test the SAM2 video FPS.
+    Args:
+        checkpoint (str): The path to the checkpoint file.
+        model_cfg (str): The path to the model configuration file.
+        verbose (bool, optional): Whether to print verbose output. Defaults to False.
+    """
+    frames_processed = 1000
+
     # Load the model.
-    checkpoint = "./checkpoints/sam2.1_hiera_large.pt"
-    model_cfg = "./configs/sam2.1/sam2.1_hiera_l.yaml"
-    predictor = build_sam2_video_predictor(model_cfg, checkpoint)
+    predictor = build_sam2_video_predictor(model_cfg, checkpoint, vos_optimized=False)
 
     # Print the total number of parameters in the model
     pytorch_total_params = sum(p.numel() for p in predictor.parameters())
@@ -97,7 +104,7 @@ if __name__ == "__main__":
 
     image_path = "imgs/1920x1080.jpg"
     video_dir = "./videos/1920x1080"
-    copy_images(image_path, video_dir)
+    copy_images(image_path, video_dir, frames_processed)
 
     # scan all the JPEG frame names in this directory
     frame_names = [
@@ -115,14 +122,62 @@ if __name__ == "__main__":
         inference_state = predictor.init_state(video_dir)
 
         # Annotation for the first frame
+
         ann_frame_idx = 0
 
         # Give a unique id to each object we interact with (it can be any integers)
         ann_obj_id = 1
-
+        points = np.array([[250, 1000], [300, 400], [310, 420]], dtype=np.float32)
         # Set input prompt points and labels
-        points = np.array([[250.0, 1000.0]], dtype=np.float32)
-        labels = np.array([1], np.int32)
+        # label 1 indicates a positive click (to add a region)
+        # label 0 indicates a negative click (to remove a region)
+        labels = np.array([1, 1, 0], np.int32)
+        _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=ann_frame_idx,
+            obj_id=ann_obj_id,
+            points=points,
+            labels=labels,
+        )
+
+        ann_obj_id = 7425
+        points = np.array([[52, 52], [53, 53]], dtype=np.float32)
+        labels = np.array([1, 0], np.int32)
+        _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=ann_frame_idx,
+            obj_id=ann_obj_id,
+            points=points,
+            labels=labels,
+        )
+
+        ann_obj_id = 7425
+        points = np.array([[54, 54], [55, 55]], dtype=np.float32)
+        labels = np.array([0, 1], np.int32)
+        _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=ann_frame_idx,
+            obj_id=ann_obj_id,
+            points=points,
+            labels=labels,
+            clear_old_points=False,
+        )
+
+        ann_frame_idx = 1
+        ann_obj_id = 666
+        points = np.array([[75, 75], [76, 76]], dtype=np.float32)
+        labels = np.array([0, 1], np.int32)
+        _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
+            inference_state=inference_state,
+            frame_idx=ann_frame_idx,
+            obj_id=ann_obj_id,
+            points=points,
+            labels=labels,
+        )
+
+        ann_obj_id = 7425
+        points = np.array([[40, 40], [41, 41]], dtype=np.float32)
+        labels = np.array([0, 0], np.int32)
         _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
             inference_state=inference_state,
             frame_idx=ann_frame_idx,
@@ -132,48 +187,65 @@ if __name__ == "__main__":
         )
 
         # Display the annotation frame
-        plt.figure(figsize=(9, 6))
-        plt.title(f"frame {ann_frame_idx}")
-        plt.imshow(Image.open(os.path.join(video_dir, frame_names[ann_frame_idx])))
-        show_points(points, labels, plt.gca())
-        show_mask(
-            (out_mask_logits[0] > 0.0).cpu().numpy(), plt.gca(), obj_id=out_obj_ids[0]
-        )
-        plt.show()
-        plt.close("all")
+        if verbose:
+            plt.figure(figsize=(9, 6))
+            plt.title(f"frame {ann_frame_idx}")
+            plt.imshow(Image.open(os.path.join(video_dir, frame_names[ann_frame_idx])))
+            show_points(points, labels, plt.gca())
+            show_mask(
+                (out_mask_logits[0] > 0.0).cpu().numpy(),
+                plt.gca(),
+                obj_id=out_obj_ids[0],
+            )
+            plt.show()
+            plt.close("all")
 
         video_segments = {}
-        start_t, end_t = (
-            torch.cuda.Event(enable_timing=True),
-            torch.cuda.Event(enable_timing=True),
-        )
-        start_t.record()
+        # Record the global start time
+        global_start_time = time.time()
 
         # Propagate the annotation to the rest of the video
         for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
             inference_state
         ):
-            end_t.record()
-            torch.cuda.synchronize()
-            print(
-                f"Time propagation frame {out_frame_idx}: {start_t.elapsed_time(end_t):.3f} ms"
-            )
-
             # Save the segmentation results
             video_segments[out_frame_idx] = {
                 out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
                 for i, out_obj_id in enumerate(out_obj_ids)
             }
 
-            start_t.record()
+    # Calculate global elapsed time
+    global_elapsed_time = time.time() - global_start_time
+
+    # Calculate true FPS based on total time
+    fps = frames_processed / global_elapsed_time
+    print(f"Average FPS: {fps:.2f}")
 
     # Display the segmentation results every few frames
-    vis_frame_stride = 1
-    plt.close("all")
-    for out_frame_idx in range(0, len(frame_names), vis_frame_stride):
-        plt.figure(figsize=(6, 4))
-        plt.title(f"frame {out_frame_idx}")
-        plt.imshow(Image.open(os.path.join(video_dir, frame_names[out_frame_idx])))
-        for out_obj_id, out_mask in video_segments[out_frame_idx].items():
-            show_mask(out_mask, plt.gca(), obj_id=out_obj_id)
-            plt.show()
+    if verbose:
+        vis_frame_stride = 1
+        plt.close("all")
+        for out_frame_idx in range(0, len(frame_names), vis_frame_stride):
+            plt.figure(figsize=(6, 4))
+            plt.title(f"frame {out_frame_idx}")
+            plt.imshow(Image.open(os.path.join(video_dir, frame_names[out_frame_idx])))
+            for out_obj_id, out_mask in video_segments[out_frame_idx].items():
+                show_mask(out_mask, plt.gca(), obj_id=out_obj_id)
+                plt.show()
+
+
+if __name__ == "__main__":
+    checkpoint = "./checkpoints/sam2.1_hiera_large.pt"
+    model_cfg = "./configs/sam2.1/sam2.1_hiera_l.yaml"
+
+    # checkpoint = "./checkpoints/sam2.1_hiera_base_plus.pt"
+    # model_cfg = "./configs/sam2.1/sam2.1_hiera_b+.yaml"
+
+    # checkpoint = "./checkpoints/sam2.1_hiera_small.pt"
+    # model_cfg = "./configs/sam2.1/sam2.1_hiera_s.yaml"
+
+    # checkpoint = "./checkpoints/sam2.1_hiera_tiny.pt"
+    # model_cfg = "./configs/sam2.1/sam2.1_hiera_t.yaml"
+
+    # Test the FPS of the SAM2 model
+    test_sam2_video_fps(checkpoint, model_cfg, verbose=True)
