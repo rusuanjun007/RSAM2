@@ -1,6 +1,6 @@
 # RSAM2
 
-RSAM2 is a lightweight wrapper for real-time video stream segmentation using the [SAM2 (Segment Anything Model 2)](https://github.com/facebookresearch/sam2) framework. It provides scripts and utilities for running segmentation on video streams and benchmarking inference speed.
+RSAM2 is a lightweight wrapper for real-time video stream segmentation using the [SAM2 (Segment Anything Model 2)](https://github.com/facebookresearch/sam2) framework. It provides scripts and utilities for running segmentation on video streams and benchmarking inference speed. SAM2 analysis detail is available in the [overleaf](https://www.overleaf.com/read/qcrvsfswfrxt#744e7a). 
 
 The FPS test result is shown below:
 ![test_result](doc/fps_vs_model_size.png)
