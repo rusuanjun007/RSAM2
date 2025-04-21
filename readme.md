@@ -23,7 +23,7 @@ The FPS test result is shown below:
 
 2. **Clone this repository**
     ```bash
-    git clone https://github.com/yourusername/RSAM2.git
+    git clone https://github.com/rusuanjun007/RSAM2.git
     cd RSAM2
     ```
 
